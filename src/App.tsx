@@ -18,6 +18,7 @@ interface User {
 interface Page {
   id: string;
   name: string;
+  access_token: string;
 }
 
 interface LiveVideo {
@@ -40,7 +41,8 @@ interface FBResponse {
 
 function App() {
   const [userId, setUserId] = useState<string>();
-  const [accessToken, setAccessToken] = useState<string>();
+  const [userToken, setUserToken] = useState<string>();
+  const [pageToken, setPageToken] = useState<string>();
   const [pages, setPages] = useState<Page[]>([]);
   const [liveVideos, setLiveVideos] = useState<LiveVideo[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -58,7 +60,7 @@ function App() {
       FB.Event.subscribe("auth.authResponseChange", (res) => {
         console.log("statuschange", res);
         setUserId(res.authResponse?.userID);
-        setAccessToken(res.authResponse.accessToken);
+        setUserToken(res.authResponse?.accessToken);
       });
     };
 
@@ -80,19 +82,24 @@ function App() {
   const getManagedPages = (userId: string) => {
     // https://developers.facebook.com/docs/graph-api/reference/user/accounts/
     return new Promise<Page[]>((resolve, reject) =>
-      FB.api<FBResponse>(`/${userId}/accounts`, (res) => {
-        console.log("pages", res);
-        res.error ? reject(res.error) : resolve(res.data);
-      })
+      FB.api<object, FBResponse>(
+        `/${userId}/accounts`,
+        { fields: "id,name,access_token" },
+        (res) => {
+          console.log("pages", res);
+          res.error ? reject(res.error) : resolve(res.data);
+        }
+      )
     );
   };
 
-  const getPageLiveVideos = (pageId: string) => {
+  const getPageLiveVideos = (pageId: string, pageToken: string) => {
     // https://developers.facebook.com/docs/graph-api/reference/page/live_videos/
     return new Promise<LiveVideo[]>((resolve, reject) =>
       FB.api<object, FBResponse>(
         `/${pageId}/live_videos`,
         {
+          access_token: pageToken,
           broadcast_status: ["LIVE"],
           fields: "id,title,description",
         },
@@ -104,12 +111,13 @@ function App() {
     );
   };
 
-  const getLiveVideoComments = (videoId: string) => {
+  const getLiveVideoComments = (videoId: string, pageToken: string) => {
     // https://developers.facebook.com/docs/graph-api/reference/live-video/comments/
     return new Promise<Comment[]>((resolve, reject) =>
       FB.api<object, FBResponse>(
         `/${videoId}/comments`,
         {
+          access_token: pageToken,
           live_filter: "no_filter",
           order: "reverse_chronological",
           fields: "id,created_time,from,message",
@@ -134,10 +142,12 @@ function App() {
       } else {
         setPages([]);
       }
+      setLiveVideos([]);
+      setComments([]);
     };
 
     getPages();
-  }, [userId, accessToken]);
+  }, [userId, userToken]);
 
   return (
     <div className="App">
@@ -180,7 +190,11 @@ function App() {
               <td>
                 <button
                   onClick={async () => {
-                    const videos = await getPageLiveVideos(p.id);
+                    const videos = await getPageLiveVideos(
+                      p.id,
+                      p.access_token
+                    );
+                    setPageToken(p.access_token);
                     setLiveVideos(videos);
                   }}
                 >
@@ -209,14 +223,19 @@ function App() {
               <td>{v.title}</td>
               <td>{v.description}</td>
               <td>
-                <button
-                  onClick={async () => {
-                    const comments = await getLiveVideoComments(v.id);
-                    setComments(comments);
-                  }}
-                >
-                  Fetch
-                </button>
+                {pageToken && (
+                  <button
+                    onClick={async () => {
+                      const comments = await getLiveVideoComments(
+                        v.id,
+                        pageToken
+                      );
+                      setComments(comments);
+                    }}
+                  >
+                    Fetch
+                  </button>
+                )}
               </td>
             </tr>
           ))}
